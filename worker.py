@@ -1,7 +1,9 @@
 # ============================================
-# DIRECT TEST - 2 BOTS (No HTML / No Central)
+# RENDER DIRECT TEST - 2 BOTS
+# Meeting hardcode | No HTML | No Central
 # ============================================
 import os
+import sys
 import asyncio
 import random
 import base64
@@ -9,6 +11,8 @@ import gc
 from datetime import datetime
 from playwright.async_api import async_playwright
 from aiohttp import web
+
+print("=== WORKER STARTING ===", flush=True)
 
 # ========== HARDCODED ==========
 MEETING_CODE = "5415403058"
@@ -35,6 +39,7 @@ ZOOM_PARTS = {
     'domain': base64.b64decode('em9vbS51cw==').decode(),
     'join_path': base64.b64decode('d2Mvam9pbg==').decode()
 }
+
 def get_zoom_url(meeting_code):
     return f"https://{ZOOM_PARTS['domain']}/{ZOOM_PARTS['join_path']}/{meeting_code}"
 
@@ -42,12 +47,13 @@ active_browsers = []
 active_contexts = []
 
 async def start_bot(tag, wait_time, meetingcode, passcode):
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Started")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Started", flush=True)
     gc.collect()
     browser = None
     context = None
     try:
         async with async_playwright() as p:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Launching browser...", flush=True)
             browser = await p.chromium.launch(
                 headless=True,
                 args=[
@@ -72,7 +78,7 @@ async def start_bot(tag, wait_time, meetingcode, passcode):
             await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             page = await context.new_page()
 
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Navigating...")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Navigating...", flush=True)
             await page.goto(get_zoom_url(meetingcode), timeout=60000)
             await asyncio.sleep(1.5)
 
@@ -84,15 +90,15 @@ async def start_bot(tag, wait_time, meetingcode, passcode):
                         loc = page.locator(f'xpath={sel}')
                         if await loc.count() > 0:
                             await loc.first.fill(user_name)
-                            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Name entered: {user_name}")
+                            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Name entered: {user_name}", flush=True)
                             break
                     except:
                         continue
                 else:
                     await page.keyboard.type(user_name)
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Name typed: {user_name}")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Name typed: {user_name}", flush=True)
             except Exception as e:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Name error: {e}")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Name error: {e}", flush=True)
 
             # Passcode
             if passcode and passcode not in ["", "0"]:
@@ -101,9 +107,9 @@ async def start_bot(tag, wait_time, meetingcode, passcode):
                     loc = page.locator('xpath=/html/body/div[2]/div[1]/div/div[1]/div/div[2]/div[2]/div/input')
                     if await loc.count() > 0:
                         await loc.fill(passcode)
-                        print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Passcode entered")
-                except:
-                    pass
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Passcode entered", flush=True)
+                except Exception as e:
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Passcode error: {e}", flush=True)
 
             await asyncio.sleep(0.8)
 
@@ -112,15 +118,16 @@ async def start_bot(tag, wait_time, meetingcode, passcode):
                 loc = page.locator('xpath=/html/body/div[2]/div[1]/div/div[1]/div/div[2]/button')
                 if await loc.count() > 0:
                     await loc.click()
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Join clicked")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Join clicked", flush=True)
                 else:
                     await page.keyboard.press('Enter')
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Enter pressed")
-            except:
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Enter pressed", flush=True)
+            except Exception as e:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Join error: {e}", flush=True)
                 await page.keyboard.press('Enter')
 
             await asyncio.sleep(2)
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Joined! Staying {wait_time//60} min...")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Joined! Staying {wait_time//60} min...", flush=True)
 
             elapsed = 0
             while elapsed < wait_time:
@@ -129,12 +136,12 @@ async def start_bot(tag, wait_time, meetingcode, passcode):
                 try:
                     await page.evaluate("() => document.title")
                 except:
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} page closed")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} page closed", flush=True)
                     break
 
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Done")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Done", flush=True)
     except Exception as e:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Failed: {str(e)[:150]}")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Failed: {str(e)[:200]}", flush=True)
     finally:
         try:
             if context in active_contexts:
@@ -162,29 +169,31 @@ async def start_http():
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"HTTP on port {port}")
+    print(f"HTTP server on port {port}", flush=True)
 
 async def run_bots():
     wait_time = DURATION_MINUTES * 60
-    print(f"\n===== STARTING {BOT_COUNT} BOTS =====")
-    print(f"Meeting : {MEETING_CODE}")
-    print(f"Passcode: {PASSCODE}")
-    print(f"Duration: {DURATION_MINUTES} min")
-    print("===============================\n")
+    print(f"\n===== STARTING {BOT_COUNT} BOTS =====", flush=True)
+    print(f"Meeting : {MEETING_CODE}", flush=True)
+    print(f"Passcode: {PASSCODE}", flush=True)
+    print(f"Duration: {DURATION_MINUTES} min", flush=True)
+    print("===============================\n", flush=True)
 
     tasks = []
     for i in range(BOT_COUNT):
         tag = f"Bot-{i+1}"
         tasks.append(asyncio.create_task(start_bot(tag, wait_time, MEETING_CODE, PASSCODE)))
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(1.2)
 
     await asyncio.gather(*tasks, return_exceptions=True)
-    print("\n===== ALL BOTS FINISHED =====\n")
+    print("\n===== ALL BOTS FINISHED =====\n", flush=True)
 
 async def main():
+    print("=== MAIN STARTED ===", flush=True)
     await start_http()
+    print("=== HTTP OK, STARTING BOTS ===", flush=True)
     await run_bots()
-    # service alive rakhne ke liye
+    print("=== KEEPING SERVICE ALIVE ===", flush=True)
     while True:
         await asyncio.sleep(3600)
 

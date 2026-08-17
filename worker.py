@@ -1,9 +1,8 @@
 # ============================================
-# RENDER WORKER - Tumhara working code + HTTP keep-alive
+# DIRECT TEST - 2 BOTS (No HTML / No Central)
 # ============================================
 import os
 import asyncio
-import socketio
 import random
 import base64
 import gc
@@ -11,9 +10,12 @@ from datetime import datetime
 from playwright.async_api import async_playwright
 from aiohttp import web
 
-CENTRAL_SERVER = "https://zoom-bot-central-production.up.railway.app"
-WORKER_ID = "render-1"        # ← yahan
-MAX_CAPACITY = 2              # ← 2 bots only
+# ========== HARDCODED ==========
+MEETING_CODE = "5415403058"
+PASSCODE = "850893"
+BOT_COUNT = 2
+DURATION_MINUTES = 120
+# ===============================
 
 INDIAN_FIRST_NAMES = [
     'Aarav', 'Vivaan', 'Aditya', 'Vihaan', 'Arjun', 'Reyansh', 'Ayaan', 'Krishna', 'Ishaan', 'Shaurya',
@@ -38,22 +40,6 @@ def get_zoom_url(meeting_code):
 
 active_browsers = []
 active_contexts = []
-should_stop = False
-current_running = 0
-lock = asyncio.Lock()
-
-async def force_close_all():
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Force closing all browsers...")
-    for ctx in list(active_contexts):
-        try: await ctx.close()
-        except: pass
-    active_contexts.clear()
-    for br in list(active_browsers):
-        try: await br.close()
-        except: pass
-    active_browsers.clear()
-    gc.collect()
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] All browsers closed")
 
 async def start_bot(tag, wait_time, meetingcode, passcode):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Started")
@@ -64,19 +50,29 @@ async def start_bot(tag, wait_time, meetingcode, passcode):
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
-                args=['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--mute-audio',
-                      '--use-fake-device-for-media-stream', '--window-size=800,600',
-                      '--disable-web-security', '--disable-blink-features=AutomationControlled']
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-software-rasterizer',
+                    '--single-process',
+                    '--mute-audio',
+                    '--use-fake-device-for-media-stream',
+                    '--window-size=640,480',
+                    '--disable-web-security',
+                    '--disable-blink-features=AutomationControlled'
+                ]
             )
             active_browsers.append(browser)
             context = await browser.new_context(
-                viewport={"width": 800, "height": 600},
+                viewport={"width": 640, "height": 480},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             active_contexts.append(context)
             await context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             page = await context.new_page()
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Navigating to Zoom...")
+
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Navigating...")
             await page.goto(get_zoom_url(meetingcode), timeout=60000)
             await asyncio.sleep(1.5)
 
@@ -90,21 +86,24 @@ async def start_bot(tag, wait_time, meetingcode, passcode):
                             await loc.first.fill(user_name)
                             print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Name entered: {user_name}")
                             break
-                    except: continue
+                    except:
+                        continue
                 else:
                     await page.keyboard.type(user_name)
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Name typed: {user_name}")
             except Exception as e:
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Name error: {e}")
 
             # Passcode
             if passcode and passcode not in ["", "0"]:
                 try:
-                    await asyncio.sleep(0.4)
+                    await asyncio.sleep(0.5)
                     loc = page.locator('xpath=/html/body/div[2]/div[1]/div/div[1]/div/div[2]/div[2]/div/input')
                     if await loc.count() > 0:
                         await loc.fill(passcode)
                         print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Passcode entered")
-                except: pass
+                except:
+                    pass
 
             await asyncio.sleep(0.8)
 
@@ -116,91 +115,43 @@ async def start_bot(tag, wait_time, meetingcode, passcode):
                     print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Join clicked")
                 else:
                     await page.keyboard.press('Enter')
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Enter pressed")
             except:
                 await page.keyboard.press('Enter')
 
             await asyncio.sleep(2)
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Joined! Staying...")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Joined! Staying {wait_time//60} min...")
 
             elapsed = 0
-            while elapsed < wait_time and not should_stop:
+            while elapsed < wait_time:
                 await asyncio.sleep(15)
                 elapsed += 15
-                try: await page.evaluate("() => document.title")
-                except: break
+                try:
+                    await page.evaluate("() => document.title")
+                except:
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} page closed")
+                    break
+
             print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Done")
     except Exception as e:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Failed: {str(e)[:120]}")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} Failed: {str(e)[:150]}")
     finally:
         try:
             if context in active_contexts:
                 await context.close()
                 active_contexts.remove(context)
-        except: pass
+        except:
+            pass
         try:
             if browser in active_browsers:
                 await browser.close()
                 active_browsers.remove(browser)
-        except: pass
+        except:
+            pass
         gc.collect()
 
-sio = socketio.AsyncClient()
-
-@sio.event
-async def connect():
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Connected to Central Server")
-    await sio.emit("register_worker", {"worker_id": WORKER_ID, "max_capacity": MAX_CAPACITY})
-
-@sio.event
-async def disconnect():
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Disconnected")
-
-@sio.event
-async def registered(data):
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Registered as {WORKER_ID}")
-
-@sio.event
-async def new_task(data):
-    global current_running, should_stop
-    should_stop = False
-    task_id = data["task_id"]
-    bot_count = min(data["bot_count"], MAX_CAPACITY)   # hard limit 2
-    meeting_code = data["meeting_code"]
-    passcode = data.get("passcode", "")
-    duration = data["duration_minutes"] * 60
-    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] NEW TASK → {bot_count} bots | {meeting_code}")
-
-    async with lock:
-        current_running += bot_count
-        await sio.emit("update_capacity", {"worker_id": WORKER_ID, "free_capacity": max(0, MAX_CAPACITY - current_running)})
-
-    tasks = []
-    for i in range(bot_count):
-        if should_stop: break
-        tag = f"{WORKER_ID}-Bot-{i+1}"
-        tasks.append(asyncio.create_task(start_bot(tag, duration, meeting_code, passcode)))
-        await asyncio.sleep(0.8)
-
-    await asyncio.gather(*tasks, return_exceptions=True)
-
-    async with lock:
-        current_running = max(0, current_running - bot_count)
-        await sio.emit("update_capacity", {"worker_id": WORKER_ID, "free_capacity": max(0, MAX_CAPACITY - current_running)})
-        await sio.emit("task_completed", {"task_id": task_id, "worker_id": WORKER_ID, "bots_completed": bot_count})
-
-@sio.event
-async def terminate(data):
-    global should_stop, current_running
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] === TERMINATE RECEIVED ===")
-    should_stop = True
-    current_running = 0
-    await force_close_all()
-    await sio.emit("update_capacity", {"worker_id": WORKER_ID, "free_capacity": MAX_CAPACITY})
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Capacity restored + browsers killed")
-
-# ===== HTTP server (Render keep-alive ke liye) =====
 async def health(request):
-    return web.Response(text="ok")
+    return web.Response(text="ok - bots running")
 
 async def start_http():
     app = web.Application()
@@ -211,20 +162,31 @@ async def start_http():
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    print(f"HTTP server on port {port}")
+    print(f"HTTP on port {port}")
 
-async def worker_loop():
-    while True:
-        try:
-            await sio.connect(CENTRAL_SERVER, wait_timeout=15)
-            await sio.wait()
-        except Exception as e:
-            print(f"Connection error: {e} | Reconnecting...")
-            await asyncio.sleep(8)
+async def run_bots():
+    wait_time = DURATION_MINUTES * 60
+    print(f"\n===== STARTING {BOT_COUNT} BOTS =====")
+    print(f"Meeting : {MEETING_CODE}")
+    print(f"Passcode: {PASSCODE}")
+    print(f"Duration: {DURATION_MINUTES} min")
+    print("===============================\n")
+
+    tasks = []
+    for i in range(BOT_COUNT):
+        tag = f"Bot-{i+1}"
+        tasks.append(asyncio.create_task(start_bot(tag, wait_time, MEETING_CODE, PASSCODE)))
+        await asyncio.sleep(1.0)
+
+    await asyncio.gather(*tasks, return_exceptions=True)
+    print("\n===== ALL BOTS FINISHED =====\n")
 
 async def main():
     await start_http()
-    await worker_loop()
+    await run_bots()
+    # service alive rakhne ke liye
+    while True:
+        await asyncio.sleep(3600)
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -17,7 +17,7 @@ print("=== WORKER STARTING ===", flush=True)
 # ========== HARDCODED ==========
 MEETING_CODE = "5415403058"
 PASSCODE = "850893"
-BOT_COUNT = 2
+BOT_COUNT = 1
 DURATION_MINUTES = 120
 # ===============================
 
